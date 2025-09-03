@@ -22,7 +22,7 @@ class Router:
         return '{' in path and '}' in path
 
     def _has_wildcards(self, path):
-        return '*' in path
+        return '{*' in path and '}' in path
 
     def add_route(self, path, method, handler):
         # /api/v1/users/{id}
@@ -69,20 +69,26 @@ class Router:
         # /api/v1/files/{*path}
         s1 = path.strip('/').split('/')
         s2 = pattern.strip('/').split('/')
-
+        params = {}
         for i, seg in enumerate(s2):
             if self._has_wildcards(seg):
                 # we have reached the point where its the end
                 key = seg.replace('{*','').replace('}','')
                 value = s1[i:]
                 value = "/".join(value)
+                params[key] = value
                 break
+            elif self._has_params(seg):
+                key = seg.replace('{','').replace('}','')
+                if i >= len(s1):
+                    return None
+                value = s1[i]
+                params[key] = value
             else:
                 # we are till the same path
                 if i > len(s1) or seg != s1[i]:
-                    return None 
-       
-        return {key: value}
+                     return None 
+        return params
 
     def resolve_route(self, path: str, method: str):
         if method not in self.routes.keys():
@@ -114,11 +120,38 @@ class Router:
 
 if __name__ == "__main__":
     r = Router()
+
+    # 1. Exact match
+    r.add_route('/health', 'GET', lambda: print("health OK"))
+    print(r.resolve_route('/health', 'GET'))   # should hit exact handler
+    print(r.resolve_route('/healthz', 'GET'))  # should 404
+
+    # 2. Param routes
+    r.add_route('/api/v1/users/{id}', 'GET', lambda: print("fetching user"))
+    print(r.resolve_route('/api/v1/users/42', 'GET'))  # {'id': '42'}
+
+    r.add_route('/api/v1/users/{id}/posts/{pid}', 'GET', lambda: print("fetching post"))
+    print(r.resolve_route('/api/v1/users/123/posts/456', 'GET'))  # {'id': '123', 'pid': '456'}
+
+    # 3. Wildcard routes
     r.add_route('/api/v1/files/{*path}', 'GET', lambda: print("fetching file path"))
-    x = r.resolve_route('/api/v1/files/docs/folders/word1.txt', 'GET')
-    print(x)
-    x = r.resolve_route('/api/v1/files/', 'GET')
-    print(x)
+    print(r.resolve_route('/api/v1/files/docs/folders/word1.txt', 'GET'))  # {'path': 'docs/folders/word1.txt'}
+    print(r.resolve_route('/api/v1/files/', 'GET'))  # {'path': ''}
+
+    # 4. Mixed params + wildcard
+    r.add_route('/api/v1/users/{id}/posts/{pid}/{*rest}', 'GET', lambda: print("fetching nested"))
+    print(r.resolve_route('/api/v1/users/123/posts/456/file.txt', 'GET'))  
+    # {'id': '123', 'pid': '456', 'rest': 'file.txt'}
+
+    print(r.resolve_route('/api/v1/users/123/posts/456/logs/2025/error.txt', 'GET'))  
+    # {'id': '123', 'pid': '456', 'rest': 'logs/2025/error.txt'}
+
+    # 5. Wrong method
+    print(r.resolve_route('/health', 'POST'))  # method not allowed
+
+    # 6. Not found
+    print(r.resolve_route('/unknown/route', 'GET'))  # 404
+
 
 """
 # Comprehensive test suite for your router
